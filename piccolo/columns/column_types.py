@@ -1343,3 +1343,102 @@ class Blob(Bytea):
     """
 
     pass
+
+
+###############################################################################
+
+
+class Geometry(Column):
+    """
+    Used for storting PostGIS geometric types.
+    See the Geography column for storing geographies.
+
+    :param shape:
+    The geometric shape of this field. E.g. `POINT`, `LINESTRING`, `POLYGON`,
+    `MULTIPOINT`, `MULTILINESTRING`, `MULTIPOLYGON`.
+
+    :param srid:
+    The SRID to use for this field. Defaults to 4326 for geographies in Postgres if not specified.
+    """
+
+    value_type = str
+
+    def __init__(
+        self,
+        shape: str,
+        srid: t.Optional[int] = None,
+        default: t.Union[str, t.Callable[[], str], None] = "",
+        **kwargs,
+    ) -> None:
+        self._validate_default(default, (str, None))
+
+        self.shape = shape
+        self.srid = srid
+        kwargs.update({"shape": shape, "srid": srid})
+        super().__init__(**kwargs)
+
+        self.geom_method: t.Optional[str] = None
+        self.select_method: t.Optional[str] = None
+
+    @property
+    def column_type(self) -> str:
+        if self.srid:
+            return f"geometry({self.shape},{self.srid})"
+        else:
+            return f"geometry({self.shape})"
+
+    def ST_Dwithin(self, geom: str, units: int) -> Geometry:
+        """Select geometries within a distance (radius) of another geometry
+        https://postgis.net/docs/ST_DWithin.html
+        """
+        self.geom_method = f"ST_Dwithin({self._meta.get_full_name()}, '{geom}', {units})"
+        return self
+
+    def ST_Intersects(self, geom: str) -> Geometry:
+        """Select geometries which intersect another geometry
+        http://postgis.net/docs/ST_Intersects.html
+        """
+        self.geom_method = f"ST_Intersects({self._meta.get_full_name()}, '{geom}')"
+        return self
+
+    def ST_AsText(self) -> Geometry:
+        """Return the column in text format instead of hex
+        https://postgis.net/docs/ST_AsText.html
+        """
+        self.select_method = f"ST_AsText({self._meta.get_full_name()})"
+        return self
+
+    def get_select_string(self, engine_type: str, just_alias=False) -> str:
+        select_string = super().get_select_string(engine_type, just_alias)
+        if self.select_method is None:
+            return select_string
+        else:
+            if self.alias is None:
+                return self.select_method
+            else:
+                return f"{self.select_method} AS {self.alias}"
+
+    def get_where_string(self, engine_type: str) -> str:
+        if not self.geom_method:
+            return self.get_select_string(engine_type, just_alias=True)
+        else:
+            return self.geom_method
+
+
+class Geography(Geometry):
+    """PostGIS Geography type. Inherits from the the Geometry type,
+    but is more accurate when doing calculations over long geodesic
+    distances (like earth). May incur a performance cost. Uses
+    meters instead of the generic unit as the input and output of
+    calculations.
+
+    Note that PostGIS expects coordinates in x, y (longitude, latitude)
+    order.
+    """
+
+    @property
+    def column_type(self) -> str:
+        if self.srid:
+            return f"geography({self.shape},{self.srid})"
+        else:
+            return f"geography({self.shape})"

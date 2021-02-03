@@ -19,6 +19,8 @@ from .column_types import (  # noqa: F401
     Timestamptz,
     UUID,
     Varchar,
+    Geometry,
+    Geography
 )
 from .base import (  # noqa: F401
     Column,
